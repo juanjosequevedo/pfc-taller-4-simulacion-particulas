@@ -1,279 +1,167 @@
-# Ejemplo de informe de corrección
+Para revisar las funciones empezamos por una sola partícula. Después vemos qué ocurre al recorrer varias y al dividir el arreglo en dos. En las versiones paralelas hay dos preguntas que debemos responder. ¿Cada partícula aparece una sola vez? ¿Qué operación permite reunir las respuestas sin cambiar su significado?
 
-Fundamentos de Programación Funcional y Concurrente.
-Documento realizado por el docente Juan Francisco Díaz.
+Usamos $n$ para la cantidad de partículas y $[d,h)$ para el tramo que empieza en $d$ y termina justo antes de $h$. Trabajamos con índices válidos, de modo que $0\le d\le h\le n$.
 
-## 1. Argumentar la corrección de programas recursivos
+## 1. Corrección del movimiento
 
-Sea $f : A \to B$ una función, y $A$ un conjunto definido recursivamente
-(recordar la definición de Matemáticas Discretas I), como por ejemplo los
-naturales o las listas.
+### `mover`
 
-Sea $P_f$ un programa recursivo (lineal o en árbol) desarrollado en Scala (o en
-cualquier lenguaje de programación) hecho para calcular $f$:
+Si una partícula está en la posición $x$ y lleva velocidad $v$, durante un tiempo $dt$ su posición cambia en $v\cdot dt$. El resultado esperado es:
 
-```scala
-def Pf(a: A): B = { // Pf recibe a de tipo A, y devuelve f(a) de tipo B
-  ...
-}
-```
+$$
+(x+v\cdot dt,\ v,\ m)
+$$
 
-¿Cómo argumentar que $P_f(a)$ siempre devuelve $f(a)$ como respuesta? Es decir,
-¿cómo argumentar que $P_f$ es correcto con respecto a su especificación?
+La primera parte de `Particula(p.pos + p.vel * dt, p.vel, p.masa)` calcula esa posición. Los otros dos campos reciben la velocidad y la masa originales. Si `dt` vale cero, el desplazamiento también vale cero.
 
-La respuesta es sencilla: demostrando el siguiente teorema.
+### `pasoSegmento` y `pasoSecuencial`
 
-```math
-\forall a \in A : P_f(a) == f(a)
-```
+Un tramo $[d,h)$ contiene $h-d$ partículas. `Array.tabulate` crea esa cantidad de lugares. Para llenar el lugar $j$, se mueve la partícula del índice $d+j$.
 
-Cuando uno tiene que demostrar que algo se cumple para todos los elementos de
-un conjunto definido recursivamente, es natural usar inducción estructural. En
-términos prácticos, esto significa demostrar que:
+Por ejemplo, en $[2,5)$ hay tres lugares. Los índices locales 0, 1 y 2 corresponden a los índices originales 2, 3 y 4. Cada uno aparece una vez y conserva su orden.
 
-- Para cada valor básico $a$ de $A$, se tiene que $P_f(a) == f(a)$.
-- Para cada valor $a \in A$ construido recursivamente a partir de otro(s)
-  valor(es) $a' \in A$, se tiene que
-  $P_f(a') == f(a') \rightarrow P_f(a) == f(a)$. (Esta es la hipótesis de
-  inducción).
+En general, el primer índice es $d$ y el último es $d+(h-d-1)=h-1$. Si $d=h$, la longitud es cero y se obtiene un arreglo vacío.
 
-### Ejemplo: factorial recursivo
+`pasoSecuencial` pide el tramo $[0,n)$. Por lo anterior, mueve todas las partículas y cada una queda en el lugar que le corresponde.
 
-Sea $f : \mathbb{N} \to \mathbb{N}$ la función que calcula el factorial de un
-número natural, es decir, $f(n) = n!$. Y sea $P_f$ el siguiente programa en
-Scala:
+### `pasoParalelo`
 
-```scala
-def Pf(n: Int): Int = { // Pf recibe n de tipo Int, y devuelve n! de tipo Int
-  if (n == 0) 1 else n * Pf(n - 1)
-}
-```
+**Caso base.** Cuando la longitud cabe en el límite, `aux` llama a `pasoSegmento`. Ese caso cubre también los tramos vacíos y los de una sola partícula.
 
-Vamos a demostrar que $\forall n \in \mathbb{N} : P_f(n) == n!$
+**Qué ocurre al dividir.** Sea $k$ el índice del medio. Los dos llamados reciben $[d,k)$ y $[k,h)$. El primero termina antes de $k$ y el segundo empieza en $k$. Por ejemplo, al partir $[0,5)$ quedan los índices `0, 1` a un lado y `2, 3, 4` al otro.
 
-**Caso base:** $n = 0$
+Las longitudes de ambas partes suman la original:
 
-```math
-P_f(0) \rightarrow \text{if } (0 == 0)\ 1 \text{ else } 0 \ast P_f(-1) \rightarrow 1
-```
+$$
+(k-d)+(h-k)=h-d
+$$
 
-Por otro lado, $f(0) = 0! = 1$. Entonces $P_f(0) == f(0)$.
+Suponemos que cada llamado mueve bien su tramo. Como entre los dos cubren todos los índices y ninguno aparece en ambos, `izquierda ++ derecha` reconstruye el paso completo.
 
-**Caso de inducción:** $n = k + 1$, $k \geq 0$. Hay que demostrar:
-$P_f(k) == f(k) \rightarrow P_f(k + 1) == f(k + 1)$
+La unión de arreglos es asociativa. Esto quiere decir que, dados tres tramos A, B y C, juntar primero A con B o primero B con C deja los elementos en el mismo orden:
 
-```math
-P_f(k+1) \rightarrow \text{if } (k+1 == 0)\ 1 \text{ else } (k+1) \ast P_f(k) \rightarrow (k+1) \ast P_f(k)
-```
+$$
+(A \mathbin{++} B)\mathbin{++} C
+=
+A\mathbin{++}(B\mathbin{++} C)
+$$
 
-Usando la hipótesis de inducción (HI):
+**Por qué termina.** El límite es al menos 1. Cuando hace falta dividir, cada hijo tiene menos elementos que su padre. Después de suficientes divisiones, todos los tramos caben en el límite.
 
-```math
-\rightarrow (k+1) \ast k! = (k+1)!
-```
+## 2. Corrección de las magnitudes secuenciales
 
-Por lo tanto, $P_f(k + 1) == f(k + 1)$.
+### `energiaSecuencial`
 
-Concluimos por inducción que $\forall n \in \mathbb{N} : P_f(n) == n!$
+Después de leer $j$ partículas, la suma debe contener la energía de esas primeras $j$:
 
-### Ejemplo: el máximo de una lista
+$$
+E_j=\sum_{i=0}^{j-1}\frac{1}{2}m_i\lVert v_i\rVert^2
+$$
 
-Sea $f : \text{List}[\mathbb{N}] \to \mathbb{N}$ la función que calcula el
-máximo de una lista de enteros positivos, no vacía. Y sea $P_f$ el siguiente
-programa en Scala:
+Al comienzo se han leído cero elementos y la suma vale cero. En el paso siguiente se calcula la rapidez de la partícula y se agrega $\frac{1}{2}m_j\lVert v_j\rVert^2$. Así se pasa de $E_j$ a $E_{j+1}$. Cuando termina el arreglo, se tiene la energía de las $n$ partículas.
 
-```scala
-def maxLin(l: List[Int]): Int = {
-  if (l.tail.isEmpty) l.head
-  else math.max(maxLin(l.tail), l.head)
-}
-```
+### `masaTotal`
 
-Demostraremos que:
+El recorrido empieza en `0.0`. Cada paso agrega la masa de una partícula, de modo que después de $j$ elementos lleva:
 
-```math
-\forall n \in \mathbb{N} \setminus \{0\} : P_f(\text{List}(a_1, a_2, \ldots, a_n)) == f(\text{List}(a_1, a_2, \ldots, a_n))
-```
+$$
+M_j=\sum_{i=0}^{j-1}m_i
+$$
 
-**Caso base:** $n = 1$
+Al llegar a $n$, cada masa se ha contado una vez. Con el arreglo vacío, la suma inicial ya es la respuesta.
 
-```math
-P_f(\text{List}(a_1)) \rightarrow \text{if } \text{List}(a_1).\text{tail.isEmpty then } \text{List}(a_1).\text{head else } \ldots \rightarrow \text{List}(a_1).\text{head} \rightarrow a_1
-```
+### `centroDeMasaSecuencial`
 
-Por otro lado, $f(\text{List}(a_1)) = a_1$. Entonces
-$P_f(\text{List}(a_1)) == f(\text{List}(a_1))$.
+Durante el recorrido guardamos dos cantidades:
 
-**Caso de inducción:** $n = k + 1$, $k \geq 1$. Se debe demostrar:
+$$
+Q_j=\sum_{i=0}^{j-1}m_i x_i
+\qquad
+M_j=\sum_{i=0}^{j-1}m_i
+$$
 
-```math
-P_f(\text{List}(b_1, b_2, \ldots, b_k)) == f(\text{List}(b_1, b_2, \ldots, b_k)) \rightarrow P_f(\text{List}(a_1, a_2, \ldots, a_{k+1})) == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))
-```
+Aquí $x_i$ representa la posición completa, con sus dos coordenadas. Al inicio la pareja es `((0, 0), 0)`. Al leer otra partícula se añade su posición multiplicada por su masa a $Q_j$, y su masa a $M_j$. Por eso los dos datos siguen correspondiendo a las partículas que ya pasaron.
 
-Empecemos por calcular qué devuelve $P_f$ usando el modelo de sustitución:
+Al final, para $M_n\ne0$, multiplicar $Q_n$ por $1/M_n$ da el centro pedido. Si la masa total es cero, la función devuelve el origen, como indica el enunciado.
 
-```math
-P_f(L) \rightarrow \text{if } L.\text{tail.isEmpty then } L.\text{head else math.max}(P_f(L.\text{tail}), L.\text{head})
-```
+## 3. Corrección de las magnitudes en paralelo
 
-```math
-\rightarrow \text{math.max}(P_f(\text{List}(a_2, \ldots, a_{k+1})), a_1)
-```
+### `energiaParalela`
 
-Sea $b = P_f(\text{List}(a_2, \ldots, a_{k+1}))$; por la hipótesis de
-inducción, $b = f(\text{List}(a_2, \ldots, a_{k+1}))$. Hay dos posibilidades:
+Cuando un tramo cabe en el umbral, `sumar` recorre sus índices y obtiene la energía de esa parte. Si se divide en $k$, cada partícula aporta a uno solo de los dos lados. Por tanto:
 
-- Si $\text{math.max}(b, a_1) = b$, entonces $b \geq a_1$ y
- $b == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))$.
-- Si $\text{math.max}(b, a_1) = a_1$, entonces $a_1 \geq b$ y
- $a_1 == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))$.
+$$
+E_{[d,h)}=E_{[d,k)}+E_{[k,h)}
+$$
 
-Por lo tanto, $P_f(L) == f(L)$.
+La suma es asociativa en los números reales. Para tres aportes se cumple $(a+b)+c=a+(b+c)$. Podemos calcular primero las sumas pequeñas y luego reunirlas. Al volver al tramo $[0,n)$ obtenemos la energía del sistema.
 
-Concluimos por inducción que:
+### `centroDeMasaParalelo`
 
-```math
-\forall n \in \mathbb{N} \setminus \{0\} : P_f(\text{List}(a_1, a_2, \ldots, a_n)) == f(\text{List}(a_1, a_2, \ldots, a_n))
-```
+Cada llamado devuelve una pareja $(Q,M)$ con la suma de posiciones por masa y la masa de su tramo. Para juntar dos partes se hace:
 
-## 2. Argumentar la corrección de programas iterativos
+$$
+(Q_1,M_1)+(Q_2,M_2)=(Q_1+Q_2,\ M_1+M_2)
+$$
 
-Para argumentar la corrección de programas iterativos, se debe formalizar cómo
-es la iteración. Esto implica definir:
+Al reunir tres partes, cualquiera de las dos agrupaciones deja $Q_1+Q_2+Q_3$ en el primer lugar y $M_1+M_2+M_3$ en el segundo. Esa es la razón por la que el reparto funciona. La división se hace una sola vez, cuando ya se conoce la masa total.
 
-- Cómo se representa un estado de la iteración, $s$.
-- Cuál es el estado inicial, $s_0$.
-- Cuál es el estado final (o cómo se reconoce que un estado es final): $s_f$.
-- Qué condición (o predicado) cumple todo estado: $\text{Inv}(s)$ (invariante
-  de la iteración).
-- El mecanismo para pasar de un estado al siguiente: $\text{transformar}(s)$.
-  Si $s_i$ es el estado $i$, entonces $\text{transformar}(s_i) = s_{i+1}$.
-
-Un programa iterativo tiene la siguiente forma:
+**Por qué no basta con promediar los centros.** Pensemos en dos grupos. El primero tiene masa 1 y su centro está en $x=0$. El segundo tiene masa 3 y su centro está en $x=8$. Si promediamos las posiciones de los centros, da $(0+8)/2=4$. Al tener en cuenta lo que pesa cada grupo obtenemos:
 
-```scala
-def Pf(a: A): B = { // Pf recibe a de tipo A, y devuelve f(a) de tipo B
-  def Pf_iter(s: Estado): B =
-    if (esFinal(s)) respuesta(s) else Pf_iter(transformar(s))
-  Pf_iter(s0)
-}
-```
+$$
+\frac{0\cdot1+8\cdot3}{1+3}=6
+$$
 
-Demostración de corrección:
+El centro queda más cerca del grupo de mayor masa. Si guardáramos solamente 0 y 8, perderíamos la información que permite obtener ese 6.
 
-- $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
-- Si $(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$:
-  el nuevo estado cumple la condición invariante si el estado anterior la
-  cumplía.
-- De lo anterior se concluye $\text{Inv}(s_f)$, es decir, el estado final
-  cumple la condición invariante. Luego,
-  $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$.
-- Finalmente, demostrar que siempre se llega al estado final $s_f$. Esto
-  implica que
-  $P_f(a) == \text{iter}(s_0) == \text{respuesta}(s_f) == f(a)$.
+Las dos funciones paralelas terminan por la misma razón que `pasoParalelo`: cada división reduce el tramo pendiente. En el programa se usa `Double`, así que al cambiar el orden de las sumas puede variar algún decimal por redondeo. Por eso para estas magnitudes se comparan los resultados con una pequeña tolerancia.
 
-### Ejemplo: factorial iterativo
+## 4. Corrección de los costos
 
-Considere el siguiente programa iterativo en Scala para calcular la función
-factorial:
+### `trabajo`
 
-```scala
-def Pf(n: Int): Int = { // Pf recibe n de tipo Int, y devuelve n! de tipo Int
-  def Pf_iter(i: Int, n: Int, ac: Int): Int =
-    if (i > n) ac else Pf_iter(i + 1, n, i * ac)
-  Pf_iter(1, n, 1)
-}
-```
+Hay un movimiento por partícula. Repartir el arreglo cambia quién hace cada parte, pero las $n$ partículas siguen presentes. Así, $W(n)=n$ y `trabajo(0)` vale cero.
 
-Este programa implementa el siguiente proceso iterativo:
+### `profundidad`
 
-- Un estado $s = (i, n, ac)$.
-- El estado inicial es $s_0 = (1, n, 1)$.
-- $(i, n, ac)$ es final si $i > n$, o lo que es lo mismo, si $i = n + 1$.
-- La invariante de ciclo es
-  $\text{Inv}(i, n, ac) \equiv i \leq n + 1 \land ac = (i-1)!$.
-  La invariante de ciclo es una relación que SIEMPRE se cumple en el ciclo.
-- $\text{transformar}((i, n, ac)) = (i+1, n, i \ast ac)$.
+Si un tramo cabe en el umbral, se recorre completo y su costo es su longitud. Si se divide, contamos una división y esperamos a que terminen ambos lados. Llamando $u$ al límite efectivo, la cuenta que buscamos es:
 
-Ahora, demostramos los puntos mencionados:
+$$
+D(n,u)=
+\begin{cases}
+n, & n\leq u,\\
+1+\max\bigl(D(\lfloor n/2\rfloor,u),D(\lceil n/2\rceil,u)\bigr), & n>u.
+\end{cases}
+$$
 
-**1.** $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
+El código calcula esta cuenta por niveles. `particiones` indica cuántas divisiones llevamos y `tramos` cuántas partes se formaron a esa altura. Al partir siempre por el medio, sus tamaños difieren a lo sumo en uno. Por eso basta conocer `menor` y `mayor`.
 
-```math
-s_0 = (1, n, 1) \implies 1 \leq n + 1 \land 1 = 0!
-```
+- Si `mayor` cabe, todos caben. El costo que queda es el tamaño del mayor.
+- Si solo cabe `menor`, el otro tiene exactamente un elemento más que el límite. Con una división adicional, sus dos mitades ya caben. Se compara el costo de esa división y su mitad mayor con lo que tarda recorrer `menor`.
+- Si ambos superan el límite, todos se vuelven a partir. Se duplica el número de tramos y se suma una división al recorrido.
 
-**2.** La invariante se mantiene con la transformación de estados,
-$(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$:
+Así se cuenta el camino que más tarda. Por ejemplo, con 17 partículas y umbral 8, el tramo de 8 tarda más que partir el de 9 y recorrer su mitad de 5. La profundidad total es 9. Este caso explica por qué el código hace la comparación entre los dos lados.
 
-1. Primer cambio, $i = i + 1$, lo que implica $ac = ((i+1) - 1)! = i!$.
-2. Segundo cambio, $ac = i \ast ac$, entonces $ac = (i - 1)! \ast i = i!$.
-3. Como se puede ver en ambos cambios indicados en la transformación, la
-   invariante se mantiene.
+### `tiempoEstimado`
 
-**3.** $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$
+Para $p>0$ procesadores, el enunciado pide:
 
-```math
-(n + 1 \leq n + 1) \land ac = ((n+1)-1)! \rightarrow ac == n!
-```
+$$
+T(n,p,u)=D(n,u)+\frac{W(n)}{p}
+$$
 
-**4.** En cada paso, la componente $i$ del estado incrementa, acercándose a $n+1$.
-Después de $n$ iteraciones, se alcanza $n+1$.
+La función usa los dos resultados anteriores. `toDouble` conserva la parte decimal del cociente. Por ejemplo, con 17 partículas y cuatro procesadores, el aporte del trabajo es `4.25`.
 
-Esto implica que $P_f(n) == \text{iter}(1, n, 1) == n!$
+## 5. Corrección de la medición y la aceleración
 
-### Ejemplo: el máximo de una lista
+`medir` ordena las muestras y toma el elemento de la posición `length / 2`. Con las cinco repeticiones que usa `umbralConveniente`, esa posición es 2 contando desde cero. Quedan dos muestras antes y dos después, de modo que el valor elegido es la mediana.
 
-Se desea calcular el máximo de una lista de enteros positivos, no vacía. Sea
-$f : \text{List}[\mathbb{N}] \to \mathbb{N}$ la función que calcula ese valor.
-Y sea $P_f$ el siguiente programa en Scala:
+Si el tiempo paralelo es positivo, `aceleracion` calcula:
 
-```scala
-def maxIt(l: List[Int]): Int = {
-  def maxAux(max: Int, l: List[Int]): Int = {
-    if (l.isEmpty) max
-    else maxAux(math.max(max, l.head), l.tail)
-  }
-  maxAux(l.head, l.tail)
-}
-```
+$$
+S=\frac{T_{\mathrm{secuencial}}}{T_{\mathrm{paralelo}}}
+$$
 
-Este programa implementa el siguiente proceso iterativo:
+Para un mismo trabajo, $S>1$ indica que terminó antes al repartirlo. Si ambos tiempos coinciden, $S=1$.
 
-- Un estado $s = (max, l)$ donde $l = \text{List}(a_i, a_{i+1}, \ldots, a_k)$
-  es una cola de $L$.
-- El estado inicial es
-  $s_0 = (L.\text{head}, L.\text{tail}) = (a_1, \text{List}(a_2, \ldots, a_k))$.
-- $s = (max, l)$ es final si $l$ es vacía.
-- $\text{Inv}(max, l) \equiv l = \text{List}(a_i, a_{i+1}, \ldots, a_k) \land max = f(\text{List}(a_1, a_2, \ldots, a_{i-1}))$.
-- $\text{transformar}((max, l)) = (nmax, l.\text{tail})$ donde $nmax = max$ si
-  $max \geq l.\text{head}$, y $nmax = l.\text{head}$ si no.
-
-Demostración de los puntos:
-
-**1.** $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
-
-```math
-s_0 = (a_1, \text{List}(a_2, \ldots, a_k)) \implies a_1 = f(\text{List}(a_1))
-```
-
-**2.** $(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$
-
-```math
-\neg\, l.\text{isEmpty} \land l = \text{List}(a_i, a_{i+1}, \ldots, a_k) \land max = f(\text{List}(a_1, a_2, \ldots, a_{i-1}))
-```
-
-```math
-\rightarrow l.\text{tail} = \text{List}(a_{i+1}, \ldots, a_k) \land nmax = f(\text{List}(a_1, \ldots, a_i))
-```
-
-**3.** $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$
-
-```math
-\text{Inv}((max, \text{List}())) \rightarrow max = f(\text{List}(a_1, \ldots, a_k))
-```
-
-**4.** En cada paso, la lista $l$ se reduce, acercándose a ser vacía. Después de
-$k$ iteraciones, $l = \text{List}()$.
-
-Esto implica que $P_f(L) == \text{maxAux}(L.\text{head}, L.\text{tail}) == f(L)$
+En `umbralConveniente`, cada candidato queda acompañado del tiempo que se obtuvo al probarlo. `minBy(_._2)` escoge la pareja con el menor tiempo medido y `._1` devuelve su umbral. Si dos candidatos empatan, el elegido sigue teniendo el menor tiempo. Para una lista vacía se devuelve `s.length`, que permite resolver el sistema completo en un tramo.
