@@ -265,29 +265,39 @@ class PruebasPropiasParticulas extends AnyFunSuite {
     assert(Math.abs(resultadoAceleracion - 0.25) < 1e-6)
   }
 
-  test("umbralConveniente: Selecciona un umbral válido entre varios candidatos") {
-    val sistemaUmbrales = Array.fill(350)(
-      Particula(
-        Vector2(2.5, -3.5),
-        Vector2(1.5, 4.5),
-        6.5
-      )
-    )
+  val simulacionControlada = new SimulacionParticulas {
+    override def pasoParalelo(s: Sistema, dt: Double, umbral: Int): Sistema =
+      Array(s(umbral - 1))
 
-    val candidatosUmbral = List(3, 9, 27, 81, 243)
-
-    val resultadoUmbral =
-      umbralConveniente(sistemaUmbrales, 1.25, candidatosUmbral)
-
-    assert(candidatosUmbral.contains(resultadoUmbral))
+    override def medir[A](repeticiones: Int)(cuerpo: => A): Double =
+      cuerpo match {
+        case resultado: Array[Particula] => resultado.head.masa
+        case _ => fail("Se esperaba el arreglo del paso paralelo")
+      }
   }
 
-  test("medir: Obtiene un tiempo positivo al ejecutar una operación") {
-    val resultadoMedicion = medir(5) {
-      (1 to 1500).map(numero => numero * numero).sum
-    }
+  test("umbralConveniente: el candidato más rápido está en medio de la lista") {
+    val origen = Vector2(0, 0)
+    val sistema = Array(
+      Particula(origen, origen, 8.0),
+      Particula(origen, origen, 3.0),
+      Particula(origen, origen, 6.0)
+    )
 
-    assert(resultadoMedicion > 0.0)
+    val elegido = simulacionControlada.umbralConveniente(sistema, 0.5, List(1, 2, 3))
+    assert(elegido == 2)
+  }
+
+  test("umbralConveniente: encuentra el menor tiempo aunque los candidatos estén desordenados") {
+    val origen = Vector2(0, 0)
+    val sistema = Array(
+      Particula(origen, origen, 5.0),
+      Particula(origen, origen, 9.0),
+      Particula(origen, origen, 2.0)
+    )
+
+    val elegido = simulacionControlada.umbralConveniente(sistema, 0.5, List(2, 1, 3))
+    assert(elegido == 3)
   }
 
   test("umbralConveniente: Devuelve el único candidato disponible") {
